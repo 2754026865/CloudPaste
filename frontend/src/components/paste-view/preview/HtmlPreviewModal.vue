@@ -220,10 +220,19 @@ onMounted(() => {
   left: 0;
   width: 100%;
   height: 100%;
-  z-index: 1000;
+  z-index: 1060;
   display: flex;
   justify-content: center;
   align-items: center;
+  padding: 8px;
+  padding-top: 80px;
+}
+
+@media (min-width: 640px) {
+  .html-preview-modal {
+    padding: 16px;
+    padding-top: 16px;
+  }
 }
 
 .modal-overlay {
@@ -240,14 +249,22 @@ onMounted(() => {
   background-color: #ffffff;
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-  width: 90%;
-  max-width: 900px;
-  height: 80%;
-  max-height: 700px;
+  width: 100%;
+  max-width: 320px;
+  height: 85%;
+  max-height: 600px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   transition: all 0.3s ease;
+}
+
+@media (min-width: 640px) {
+  .modal-container {
+    max-width: 900px;
+    height: 80%;
+    max-height: 700px;
+  }
 }
 
 .modal-container.dark-mode {

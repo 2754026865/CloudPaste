@@ -50,15 +50,8 @@
             <div class="truncate">
               <div class="flex items-center">
                 <!-- 文件图标 -->
-                <div class="flex-shrink-0 mr-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" :class="getFileIconClass(file.mimetype)" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                    />
-                  </svg>
+                <div class="flex-shrink-0 mr-2 w-5 h-5">
+                  <span v-html="getFileIconClassLocal(file)"></span>
                 </div>
                 <!-- 文件名 -->
                 <div class="flex-1 truncate">
@@ -79,7 +72,7 @@
 
             <!-- 文件类型 -->
             <div :class="darkMode ? 'text-gray-300' : 'text-gray-600'" class="truncate">
-              {{ formatMimeType(file.mimetype) }}
+              {{ formatMimeType(file.mimetype, file.filename) }}
             </div>
 
             <!-- 访问次数 -->
@@ -93,7 +86,7 @@
                   : '',
               ]"
             >
-              {{ t("file.remainingCount", { count: getRemainingViews(file) }) }}
+              {{ getRemainingViews(file) }}
             </div>
 
             <!-- 密码状态 -->
@@ -200,15 +193,8 @@
             <div class="flex items-start justify-between">
               <div class="flex items-start">
                 <!-- 文件图标 -->
-                <div class="mr-3 mt-0.5">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" :class="getFileIconClass(file.mimetype)" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                    />
-                  </svg>
+                <div class="mr-3 mt-0.5 w-6 h-6">
+                  <span v-html="getFileIconClassLocal(file)"></span>
                 </div>
 
                 <!-- 文件信息 -->
@@ -230,7 +216,7 @@
                             ? 'text-yellow-500 dark:text-yellow-400'
                             : '',
                         ]"
-                        >{{ t("file.remainingCount", { count: getRemainingViews(file) }) }}</span
+                        >{{ getRemainingViews(file) }}</span
                       >
                       <span>{{ formatDate(file.created_at) }}</span>
                     </div>
@@ -306,9 +292,9 @@
     </div>
 
     <!-- 删除确认对话框 -->
-    <div v-if="showDeleteConfirm" class="fixed inset-0 flex items-center justify-center z-50">
+    <div v-if="showDeleteConfirm" class="fixed inset-0 flex items-center justify-center z-[60] p-2 sm:p-4 pt-20 sm:pt-4">
       <div class="absolute inset-0 bg-black opacity-50" @click="cancelDelete"></div>
-      <div class="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-lg max-w-md w-full relative z-10">
+      <div class="bg-white dark:bg-gray-800 rounded-lg p-4 sm:p-6 shadow-lg max-w-xs sm:max-w-md w-full relative z-10">
         <h3 class="text-lg font-medium mb-4" :class="darkMode ? 'text-white' : 'text-gray-900'">{{ t("file.confirmDelete") }}</h3>
         <p class="mb-6" :class="darkMode ? 'text-gray-300' : 'text-gray-600'">{{ t("file.confirmDeleteMessage") }}</p>
         <div class="flex justify-end space-x-3">
@@ -361,8 +347,8 @@
         </div>
         <div class="flex flex-col items-center">
           <div class="bg-white p-3 rounded-md shadow-md mb-3">
-            <img v-if="qrCodeUrl" :src="qrCodeUrl" :alt="t('file.fileQrCode')" class="w-48 h-48" />
-            <div v-else class="w-48 h-48 flex items-center justify-center">
+            <img v-if="qrCodeUrl" :src="qrCodeUrl" :alt="t('file.fileQrCode')" class="w-60 h-60" />
+            <div v-else class="w-60 h-60 flex items-center justify-center">
               <svg class="animate-spin h-8 w-8" :class="darkMode ? 'text-gray-400' : 'text-gray-600'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path
@@ -394,11 +380,15 @@
 
 <script setup>
 import { ref, defineProps, defineEmits, watch, onUnmounted } from "vue";
-import { api } from "../../api";
+import { api } from "@/api";
 import { useI18n } from "vue-i18n";
-import { getFile, getUserFile } from "../../api/fileService";
+import { copyToClipboard } from "@/utils/clipboard";
+import { useDeleteSettingsStore } from "@/stores/deleteSettingsStore.js";
 
 const { t } = useI18n();
+
+// 使用全局删除设置
+const deleteSettingsStore = useDeleteSettingsStore();
 
 const props = defineProps({
   darkMode: {
@@ -421,16 +411,19 @@ const props = defineProps({
 
 const emit = defineEmits(["refresh"]);
 
+// 导入统一的工具函数
+import { getRemainingViews as getRemainingViewsUtil, formatFileSize } from "@/utils/fileUtils.js";
+import { getFileIcon } from "@/utils/fileTypeIcons.js";
+
+import QRCode from "qrcode";
+
 /**
  * 计算剩余可访问次数
  * @param {Object} file - 文件对象
  * @returns {string|number} 剩余访问次数或状态描述
  */
 const getRemainingViews = (file) => {
-  if (!file.max_views || file.max_views === 0) return t("file.unlimited");
-  const viewCount = file.views || 0;
-  const remaining = file.max_views - viewCount;
-  return remaining <= 0 ? t("file.usedUp") : remaining;
+  return getRemainingViewsUtil(file, t);
 };
 
 // 删除状态
@@ -446,10 +439,6 @@ let messageTimeout = null;
 const showQRModal = ref(false);
 const qrCodeUrl = ref(null);
 const currentFileUrl = ref("");
-
-// 判断用户类型
-const isAdmin = () => props.userType === "admin";
-const isApiKeyUser = () => props.userType === "apikey";
 
 // 复制成功标志
 const copiedPermanentFiles = ref({});
@@ -473,15 +462,24 @@ const deleteFile = async () => {
   isDeleting.value = true;
 
   try {
-    // 根据用户类型调用不同的API
-    if (isAdmin()) {
-      await api.file.deleteFile(fileIdToDelete.value);
-    } else {
-      await api.file.deleteUserFile(fileIdToDelete.value);
-    }
+    let response;
 
-    // 显示成功消息
-    showMessage("success", t("file.deletedSuccess"));
+    // 使用统一的批量删除API，传递全局删除模式
+    response = await api.file.batchDeleteFiles([fileIdToDelete.value], deleteSettingsStore.getDeleteMode());
+
+    // 检查批量删除结果
+    if (response.success) {
+      if (response.data && response.data.failed && response.data.failed.length > 0) {
+        // 删除失败
+        const failedItem = response.data.failed[0];
+        throw new Error(failedItem.error || "删除失败");
+      }
+
+      // 显示成功消息
+      showMessage("success", t("file.deletedSuccess"));
+    } else {
+      throw new Error(response.message || "删除失败");
+    }
 
     // 关闭对话框
     showDeleteConfirm.value = false;
@@ -491,24 +489,28 @@ const deleteFile = async () => {
     emit("refresh");
   } catch (error) {
     console.error("删除文件失败:", error);
-    showMessage("error", t("file.deleteFailed", { message: error.message || t("common.unknownError") }));
+    showMessage("error", t("file.messages.deleteFailed") + ": " + (error.message || t("file.messages.unknownError")));
   } finally {
     isDeleting.value = false;
   }
 };
 
 // 复制文件链接
-const copyFileUrl = (file) => {
+const copyFileUrl = async (file) => {
   // 构建文件URL
   const baseUrl = window.location.origin;
   const fileUrl = `${baseUrl}/file/${file.slug}`;
 
   try {
-    navigator.clipboard.writeText(fileUrl);
-    showMessage("success", t("file.linkCopied"));
+    const success = await copyToClipboard(fileUrl);
+    if (success) {
+      showMessage("success", t("file.linkCopied"));
+    } else {
+      throw new Error(t("file.messages.copyFailed"));
+    }
   } catch (error) {
     console.error("复制链接失败:", error);
-    showMessage("error", t("file.copyFailed"));
+    showMessage("error", t("file.messages.copyFailed"));
   }
 };
 
@@ -551,220 +553,40 @@ const startMessageTimer = () => {
   }
 };
 
-// 格式化文件大小
-const formatFileSize = (bytes) => {
-  if (bytes === 0) return "0 Bytes";
-
-  const k = 1024;
-  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-};
-
 // 格式化MIME类型
-const formatMimeType = (mimetype) => {
-  if (!mimetype) return "未知类型";
-
-  // Markdown文件 - 特别处理，提升到顶层条件
-  if (mimetype === "text/markdown") {
-    return "Markdown文档";
+const formatMimeType = (mimetype, filename) => {
+  if (mimetype) {
+    return mimetype;
   }
-  // 图片类型
-  else if (mimetype.startsWith("image/")) {
-    const subtype = mimetype.replace("image/", "");
-    const imageTypes = {
-      jpeg: "JPEG图像",
-      jpg: "JPEG图像",
-      png: "PNG图像",
-      gif: "GIF动图",
-      webp: "WebP图像",
-      "svg+xml": "SVG矢量图",
-      tiff: "TIFF图像",
-      bmp: "BMP位图",
-      "x-icon": "ICO图标",
-      heic: "HEIC高效图像",
-    };
-    return imageTypes[subtype] || `图像/${subtype}`;
-  }
-  // 视频类型
-  else if (mimetype.startsWith("video/")) {
-    const subtype = mimetype.replace("video/", "");
-    const videoTypes = {
-      mp4: "MP4视频",
-      webm: "WebM视频",
-      "x-msvideo": "AVI视频",
-      quicktime: "MOV视频",
-      "x-ms-wmv": "WMV视频",
-      "x-matroska": "MKV视频",
-      "3gpp": "3GP视频",
-    };
-    return videoTypes[subtype] || `视频/${subtype}`;
-  }
-  // 音频类型
-  else if (mimetype.startsWith("audio/")) {
-    const subtype = mimetype.replace("audio/", "");
-    const audioTypes = {
-      mpeg: "MP3音频",
-      mp4: "M4A音频",
-      wav: "WAV音频",
-      ogg: "OGG音频",
-      flac: "FLAC无损音频",
-      aac: "AAC音频",
-    };
-    return audioTypes[subtype] || `音频/${subtype}`;
-  }
-  // 文档类型
-  else if (mimetype === "application/pdf") {
-    return "PDF文档";
-  } else if (mimetype.includes("spreadsheet") || mimetype.includes("excel")) {
-    return "电子表格";
-  } else if (mimetype.includes("document") || mimetype.includes("word")) {
-    return "文档";
-  } else if (mimetype.includes("presentation") || mimetype.includes("powerpoint")) {
-    return "演示文稿";
-  }
-  // 压缩文件
-  else if (mimetype === "application/zip" || mimetype === "application/x-zip-compressed") {
-    return "ZIP压缩包";
-  } else if (mimetype === "application/x-rar-compressed") {
-    return "RAR压缩包";
-  } else if (mimetype === "application/x-7z-compressed") {
-    return "7Z压缩包";
-  } else if (mimetype === "application/x-tar") {
-    return "TAR打包文件";
-  } else if (mimetype === "application/gzip") {
-    return "GZIP压缩文件";
-  }
-  // 文本文件
-  else if (mimetype === "text/plain") {
-    return "文本文件";
-  } else if (mimetype === "text/html") {
-    return "HTML网页";
-  } else if (mimetype === "text/css") {
-    return "CSS样式表";
-  } else if (mimetype === "application/javascript") {
-    return "JavaScript脚本";
-  } else if (mimetype === "application/json") {
-    return "JSON数据";
-  } else if (mimetype === "application/xml") {
-    return "XML数据";
-  } else if (mimetype === "text/csv") {
-    return "CSV表格数据";
-  } else if (mimetype === "application/rtf") {
-    return "RTF富文本";
-  }
-  // 其他特殊类型
-  else if (mimetype === "application/x-iso9660-image") {
-    return "ISO光盘镜像";
-  } else if (mimetype === "application/x-sqlite3") {
-    return "SQLite数据库";
-  } else if (mimetype === "application/epub+zip") {
-    return "EPUB电子书";
-  } else if (mimetype === "application/vnd.android.package-archive") {
-    return "APK安卓应用";
-  } else if (mimetype === "application/x-msdownload") {
-    return "可执行程序";
-  } else if (mimetype === "image/vnd.adobe.photoshop") {
-    return "PSD设计文件";
-  } else if (mimetype === "application/postscript") {
-    return "AI矢量设计";
-  } else if (mimetype === "application/vnd.ms-fontobject" || mimetype === "font/ttf" || mimetype === "font/woff" || mimetype === "font/woff2") {
-    return "字体文件";
-  }
-
-  // 如果没有匹配的预定义类型，尝试提取子类型
-  const parts = mimetype.split("/");
-  if (parts.length === 2) {
-    return `${parts[0]}/${parts[1]}`;
-  }
-
-  return mimetype;
+  // 如果没有 MIME 类型，从文件名推断
+  const ext = filename?.split(".").pop()?.toLowerCase();
+  return ext ? `${ext} 文件` : "未知类型";
 };
 
-// 根据MIME类型返回文件图标颜色
-const getFileIconClass = (mimetype) => {
-  if (!mimetype) return props.darkMode ? "text-gray-400" : "text-gray-500";
+/**
+ * 获取文件图标HTML（使用后端返回的type字段）
+ * @param {Object} file - 文件对象（包含type字段）
+ * @returns {string} SVG图标HTML字符串
+ */
+const getFileIconClassLocal = (file) => {
+  // 直接使用后端返回的type字段
+  const fileItem = {
+    name: file.filename,
+    filename: file.filename,
+    isDirectory: false,
+    type: file.type,
+  };
 
-  // Markdown文件 - 特别处理，提升到顶层条件
-  if (mimetype === "text/markdown") {
-    return props.darkMode ? "text-emerald-400" : "text-emerald-500";
-  }
-  // 图片类型
-  else if (mimetype.startsWith("image/")) {
-    return props.darkMode ? "text-pink-400" : "text-pink-500";
-  }
-  // 视频类型
-  else if (mimetype.startsWith("video/")) {
-    return props.darkMode ? "text-purple-400" : "text-purple-500";
-  }
-  // 音频类型
-  else if (mimetype.startsWith("audio/")) {
-    return props.darkMode ? "text-indigo-400" : "text-indigo-500";
-  }
-  // PDF文档
-  else if (mimetype === "application/pdf") {
-    return props.darkMode ? "text-red-400" : "text-red-500";
-  }
-  // 电子表格
-  else if (mimetype.includes("spreadsheet") || mimetype.includes("excel") || mimetype === "text/csv") {
-    return props.darkMode ? "text-green-400" : "text-green-500";
-  }
-  // 文档类型
-  else if (mimetype.includes("document") || mimetype.includes("word") || mimetype === "text/plain" || mimetype === "application/rtf") {
-    return props.darkMode ? "text-blue-400" : "text-blue-500";
-  }
-  // 演示文稿
-  else if (mimetype.includes("presentation") || mimetype.includes("powerpoint")) {
-    return props.darkMode ? "text-orange-400" : "text-orange-500";
-  }
-  // 压缩文件
-  else if (
-    mimetype.includes("zip") ||
-    mimetype.includes("rar") ||
-    mimetype.includes("compressed") ||
-    mimetype.includes("tar") ||
-    mimetype.includes("gzip") ||
-    mimetype === "application/x-7z-compressed"
-  ) {
-    return props.darkMode ? "text-yellow-400" : "text-yellow-500";
-  }
-  // 代码和脚本文件
-  else if (mimetype === "application/javascript" || mimetype === "application/json" || mimetype === "text/html" || mimetype === "text/css" || mimetype === "application/xml") {
-    return props.darkMode ? "text-teal-400" : "text-teal-500";
-  }
-  // 数据库文件
-  else if (mimetype.includes("sqlite") || mimetype.includes("db")) {
-    return props.darkMode ? "text-cyan-400" : "text-cyan-500";
-  }
-  // 字体文件
-  else if (mimetype.includes("font") || mimetype.includes("ttf") || mimetype.includes("woff")) {
-    return props.darkMode ? "text-rose-400" : "text-rose-500";
-  }
-  // 可执行文件
-  else if (mimetype.includes("msdownload") || mimetype === "application/vnd.android.package-archive") {
-    return props.darkMode ? "text-slate-400" : "text-slate-500";
-  }
-  // 默认灰色
-  return props.darkMode ? "text-gray-400" : "text-gray-500";
+  return getFileIcon(fileItem, props.darkMode);
 };
+
+// 导入统一的时间处理工具
+import { formatDateTime } from "@/utils/timeUtils.js";
 
 // 格式化日期
 const formatDate = (dateString) => {
-  if (!dateString) return "未知";
-
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleString("zh-CN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch (e) {
-    return dateString;
-  }
+  if (!dateString) return t("common.unknown");
+  return formatDateTime(dateString);
 };
 
 // 显示二维码
@@ -792,11 +614,21 @@ const closeQRCode = () => {
 };
 
 // 生成二维码
-const generateQRCode = (url) => {
-  // 使用QR Code API生成二维码
-  // 这里使用QRServer.com的免费API
-  const apiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
-  qrCodeUrl.value = apiUrl;
+const generateQRCode = async (url) => {
+  try {
+    // 使用qrcode库生成二维码
+    const dataURL = await QRCode.toDataURL(url, {
+      width: 300,
+      margin: 2,
+      color: {
+        dark: props.darkMode ? "#ffffff" : "#000000",
+        light: props.darkMode ? "#000000" : "#ffffff",
+      },
+    });
+    qrCodeUrl.value = dataURL;
+  } catch (error) {
+    console.error("生成二维码失败:", error);
+  }
 };
 
 // 下载二维码
@@ -806,7 +638,7 @@ const downloadQRCode = () => {
   // 创建一个链接元素
   const a = document.createElement("a");
   a.href = qrCodeUrl.value;
-  a.download = `qrcode-${Date.now()}.png`;
+  a.download = `cloudpaste-file-qrcode-${Date.now()}.png`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -836,17 +668,17 @@ const copyPermanentLink = async (file) => {
         const isAdminUser = props.userType === "admin";
         console.log(`当前用户类型: ${props.userType}, 是否管理员: ${isAdminUser}`);
 
-        // 调用相应的API
-        const response = isAdminUser ? await getFile(file.id) : await getUserFile(file.id);
+        // 调用统一的API（自动根据认证信息处理）
+        const response = await api.file.getFile(file.id);
 
         if (response.success && response.data) {
           fileWithUrls = response.data;
         } else {
-          throw new Error(response.message || t("file.getFileDetailFailed"));
+          throw new Error(response.message || t("file.messages.getFileDetailFailed"));
         }
       } catch (error) {
-        console.error(t("file.getFileDetailFailed") + ":", error);
-        alert(t("file.cannotGetDirectLink"));
+        console.error(t("file.messages.getFileDetailFailed") + ":", error);
+        alert(t("file.messages.cannotGetDirectLink"));
         return;
       }
     }
@@ -864,24 +696,28 @@ const copyPermanentLink = async (file) => {
         permanentDownloadUrl += permanentDownloadUrl.includes("?") ? `&password=${encodeURIComponent(filePassword)}` : `?password=${encodeURIComponent(filePassword)}`;
       }
 
-      await navigator.clipboard.writeText(permanentDownloadUrl);
+      const success = await copyToClipboard(permanentDownloadUrl);
 
-      // 为特定文件设置复制成功状态
-      copiedPermanentFiles.value[file.id] = true;
+      if (success) {
+        // 为特定文件设置复制成功状态
+        copiedPermanentFiles.value[file.id] = true;
 
-      // 3秒后清除状态
-      setTimeout(() => {
-        copiedPermanentFiles.value[file.id] = false;
-      }, 2000);
+        // 3秒后清除状态
+        setTimeout(() => {
+          copiedPermanentFiles.value[file.id] = false;
+        }, 2000);
 
-      // 显示成功消息
-      showMessage("success", t("file.directLinkCopied"));
+        // 显示成功消息
+        showMessage("success", t("file.directLinkCopied"));
+      } else {
+        throw new Error(t("file.messages.copyFailed"));
+      }
     } else {
       throw new Error(t("file.cannotGetProxyLink"));
     }
   } catch (err) {
     console.error(t("file.copyPermanentLinkFailed") + ":", err);
-    alert(`${t("file.copyPermanentLinkFailed")}: ${err.message || t("common.unknownError")}`);
+    alert(`${t("file.copyPermanentLinkFailed")}: ${err.message || t("file.messages.unknownError")}`);
   }
 };
 

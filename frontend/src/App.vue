@@ -1,17 +1,15 @@
 <script setup>
-import { ref, watchEffect, onMounted, onBeforeUnmount } from "vue";
-import { useI18n } from "vue-i18n";
-import MarkdownEditor from "./components/MarkdownEditor.vue";
+import { ref, watchEffect, onMounted, onBeforeUnmount, computed } from "vue";
+import { useRoute } from "vue-router";
 import EnvSwitcher from "./components/EnvSwitcher.vue";
-import AdminPage from "./components/adminManagement/AdminPage.vue";
-import PasteView from "./components/PasteView.vue";
-import FileUploadPage from "./components/FileUpload.vue";
-import FileView from "./components/FileView.vue";
 import LanguageSwitcher from "./components/LanguageSwitcher.vue";
-import MountExplorer from "./components/MountExplorer.vue";
+import PWAInstallPrompt from "./components/PWAInstallPrompt.vue";
+import { useAuthStore } from "./stores/authStore.js";
 
-// 使用i18n
-const { t } = useI18n();
+const route = useRoute();
+
+// 使用认证Store
+const authStore = useAuthStore();
 
 // 初始化主题模式状态
 const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -22,26 +20,25 @@ const themeMode = ref(savedThemeMode || "auto");
 // 实际的暗色模式状态
 const isDarkMode = ref(themeMode.value === "auto" ? prefersDark : themeMode.value === "dark");
 
-// 当前激活的页面
-const activePage = ref("home"); // 'home', 'upload', 'admin', 'paste-view', 'file-view', 'mount-explorer'
+// 计算当前页面 - 基于路由
+const activePage = computed(() => {
+  return route.meta?.originalPage || "home";
+});
 
 // 过渡状态，用于页面切换动画
 const transitioning = ref(false);
 
-// 分享链接的slug
-const pasteSlug = ref(null);
+// 移动端菜单状态
+const isMobileMenuOpen = ref(false);
 
-// 文件预览链接的slug
-const fileSlug = ref(null);
-
-// 开发环境判断
-const isDev = import.meta.env.DEV;
-
-// 环境切换器显示控制
+// 环境切换器显示状态
 const showEnvSwitcher = ref(false);
 
-// GitHub仓库链接
+// GitHub 链接
 const githubUrl = "https://github.com/ling-drag0n/CloudPaste";
+
+// 检查是否为开发环境
+const isDev = import.meta.env.DEV;
 
 // 系统主题媒体查询
 let darkModeMediaQuery;
@@ -53,7 +50,50 @@ const darkModeHandler = (e) => {
   }
 };
 
-// 在mounted钩子中设置监听器
+// 切换移动端菜单状态
+const toggleMobileMenu = () => {
+  isMobileMenuOpen.value = !isMobileMenuOpen.value;
+};
+
+// 切换主题模式
+const toggleThemeMode = () => {
+  const modes = ["auto", "light", "dark"];
+  const currentIndex = modes.indexOf(themeMode.value);
+  const nextIndex = (currentIndex + 1) % modes.length;
+  themeMode.value = modes[nextIndex];
+
+  // 保存到本地存储
+  localStorage.setItem("themeMode", themeMode.value);
+
+  // 更新主题
+  updateTheme();
+};
+
+// 更新主题函数
+const updateTheme = () => {
+  if (themeMode.value === "auto") {
+    isDarkMode.value = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  } else {
+    isDarkMode.value = themeMode.value === "dark";
+  }
+
+  // 更新 DOM 类
+  if (isDarkMode.value) {
+    document.documentElement.classList.add("dark");
+  } else {
+    document.documentElement.classList.remove("dark");
+  }
+
+  // 保存主题模式到本地存储
+  localStorage.setItem("themeMode", themeMode.value);
+};
+
+// 监听并更新 DOM 的主题类
+watchEffect(() => {
+  updateTheme();
+});
+
+// 组件挂载时初始化
 onMounted(() => {
   // 初始化系统主题媒体查询
   darkModeMediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
@@ -67,7 +107,7 @@ onMounted(() => {
   }
 
   // 初始化主题
-  updateThemeBasedOnMode();
+  updateTheme();
 
   // 在开发环境中始终显示环境切换器
   if (isDev) {
@@ -75,246 +115,28 @@ onMounted(() => {
   } else {
     // 在生产环境中，只有在明确的条件下才显示：
     // 1. 存在管理员token
-    // 2. URL中有特定的参数 (showEnvSwitcher) 也就是"https://域名.com?showEnvSwitcher"
-    const hasAdminToken = !!localStorage.getItem("admin_token");
+    // 2. URL中有特定的参数 (showEnvSwitcher) 如："https://域名.com?showEnvSwitcher"
+    const hasAdminToken = authStore.isAdmin;
     const urlParams = new URLSearchParams(window.location.search);
     const hasEnvParam = urlParams.has("showEnvSwitcher");
 
     // 确保在生产环境中默认不显示
     showEnvSwitcher.value = hasAdminToken && hasEnvParam;
   }
+
+  console.log("应用初始化完成");
 });
 
-// 在beforeUnmount钩子中清除监听器
+// 组件卸载时移除事件监听
 onBeforeUnmount(() => {
   if (darkModeMediaQuery) {
     if (darkModeMediaQuery.removeEventListener) {
       darkModeMediaQuery.removeEventListener("change", darkModeHandler);
     } else {
-      // 兼容旧版浏览器
       darkModeMediaQuery.removeListener(darkModeHandler);
     }
   }
 });
-
-// 添加移动端菜单展开状态
-const isMobileMenuOpen = ref(false);
-
-// 切换移动端菜单状态
-const toggleMobileMenu = () => {
-  isMobileMenuOpen.value = !isMobileMenuOpen.value;
-};
-
-// 循环切换主题模式：auto -> light -> dark -> auto
-const toggleThemeMode = () => {
-  if (themeMode.value === "auto") {
-    themeMode.value = "light";
-    isDarkMode.value = false;
-  } else if (themeMode.value === "light") {
-    themeMode.value = "dark";
-    isDarkMode.value = true;
-  } else {
-    themeMode.value = "auto";
-    // 如果切换到自动模式，立即应用系统主题
-    isDarkMode.value = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  }
-  updateTheme();
-};
-
-// 根据当前主题模式更新isDarkMode
-const updateThemeBasedOnMode = () => {
-  if (themeMode.value === "auto") {
-    isDarkMode.value = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  } else {
-    isDarkMode.value = themeMode.value === "dark";
-  }
-  updateTheme();
-};
-
-// 监听并更新 DOM 的主题类
-watchEffect(() => {
-  updateTheme();
-});
-
-// 更新主题
-function updateTheme() {
-  if (isDarkMode.value) {
-    document.documentElement.classList.add("dark");
-  } else {
-    document.documentElement.classList.remove("dark");
-  }
-  localStorage.setItem("themeMode", themeMode.value);
-}
-
-// 页面导航
-const navigateTo = (page) => {
-  // 如果当前页面与目标页面相同，则不执行任何操作
-  if (activePage.value === page) {
-    return;
-  }
-
-  // 先对当前页面进行清理操作
-  const prevPage = activePage.value;
-
-  // 如果移动菜单是打开的，关闭它
-  if (isMobileMenuOpen.value) {
-    isMobileMenuOpen.value = false;
-  }
-
-  // 延迟切换页面，让当前页面有时间完成清理
-  setTimeout(() => {
-    activePage.value = page;
-    // 如果不是查看分享页，清除slug
-    if (page !== "paste-view") {
-      pasteSlug.value = null;
-    }
-    // 如果需要，更新URL
-    updateUrl();
-
-    // 添加调试日志
-    console.log(`页面从 ${prevPage} 切换到 ${page}`);
-
-    // 输出当前token信息，用于调试
-    const adminToken = localStorage.getItem("admin_token");
-    console.log(`切换页面后token状态: ${adminToken ? "存在" : "不存在"}`);
-  }, 0);
-};
-
-// 更新URL地址，保持与当前视图同步
-const updateUrl = () => {
-  let path = "/";
-
-  if (activePage.value === "paste-view" && pasteSlug.value) {
-    path = `/paste/${pasteSlug.value}`;
-    window.history.pushState({}, "", path);
-  } else if (activePage.value === "file-view" && fileSlug.value) {
-    path = `/file/${fileSlug.value}`;
-    window.history.pushState({}, "", path);
-  } else if (activePage.value !== "home") {
-    path = `/${activePage.value}`;
-    window.history.pushState({}, "", path);
-  } else {
-    window.history.pushState({}, "", "/");
-  }
-};
-
-// 处理URL路径变化
-const handlePathChange = () => {
-  const path = window.location.pathname;
-  console.log("路径变化检测:", path);
-
-  // 检查是否是分享链接格式
-  const pasteMatch = path.match(/^\/paste\/([a-zA-Z0-9_-]+)$/);
-  if (pasteMatch) {
-    console.log("检测到分享链接路径:", pasteMatch[1]);
-    // 如果当前不是paste-view页面，则进行平滑切换
-    if (activePage.value !== "paste-view") {
-      setTimeout(() => {
-        pasteSlug.value = pasteMatch[1];
-        activePage.value = "paste-view";
-        console.log("切换到分享查看页面");
-      }, 0);
-    } else {
-      pasteSlug.value = pasteMatch[1];
-    }
-    return;
-  }
-
-  // 检查是否是文件预览链接格式
-  const fileMatch = path.match(/^\/file\/([a-zA-Z0-9_-]+)$/);
-  if (fileMatch) {
-    console.log("检测到文件预览链接路径:", fileMatch[1]);
-    // 如果当前不是file-view页面，则进行平滑切换
-    if (activePage.value !== "file-view") {
-      setTimeout(() => {
-        fileSlug.value = fileMatch[1];
-        activePage.value = "file-view";
-        console.log("切换到文件预览页面");
-      }, 0);
-    } else {
-      fileSlug.value = fileMatch[1];
-    }
-    return;
-  }
-
-  // 处理其他路径，使用延迟切换
-  let newPage = "home";
-  if (path === "/upload") {
-    newPage = "upload";
-    console.log("检测到上传页面路径");
-  } else if (path === "/admin") {
-    newPage = "admin";
-    console.log("检测到管理页面路径");
-
-    // 检查管理员令牌是否已过期
-    const adminToken = localStorage.getItem("admin_token");
-    if (adminToken) {
-      // 导入并使用 fetchApi 函数
-      import("./api/client.js").then(({ fetchApi }) => {
-        fetchApi("test/admin-token", {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${adminToken}`,
-          },
-        }).catch((error) => {
-          console.error("管理员令牌验证失败:", error);
-          // 令牌验证失败，清除令牌并刷新页面
-          localStorage.removeItem("admin_token");
-          // 保持在管理页面，但会显示登录表单
-          window.dispatchEvent(new CustomEvent("admin-token-expired"));
-        });
-      });
-    }
-  } else if (path === "/mount-explorer") {
-    newPage = "mount-explorer";
-    console.log("检测到挂载浏览页面路径");
-  } else {
-    console.log("检测到首页路径");
-  }
-
-  // 如果页面发生变化，延迟切换
-  if (activePage.value !== newPage) {
-    setTimeout(() => {
-      activePage.value = newPage;
-      console.log(`路径切换: 页面从 ${activePage.value} 变为 ${newPage}`);
-
-      // 检查权限状态
-      const adminToken = localStorage.getItem("admin_token");
-      const apiKey = localStorage.getItem("api_key");
-      console.log(`页面切换后权限状态: adminToken=${adminToken ? "存在" : "不存在"}, apiKey=${apiKey ? "存在" : "不存在"}`);
-    }, 0);
-  }
-};
-
-// 监听浏览器前进后退事件
-const handlePopState = () => {
-  handlePathChange();
-};
-
-// 添加/移除事件监听器
-let popStateListener = null;
-
-// 组件挂载时检查URL路径
-onMounted(() => {
-  // 处理当前URL路径
-  handlePathChange();
-
-  // 监听浏览器前进后退按钮事件
-  popStateListener = handlePopState;
-  window.addEventListener("popstate", popStateListener);
-});
-
-// 组件卸载时移除事件监听
-onBeforeUnmount(() => {
-  // 移除事件监听器
-  if (popStateListener) {
-    window.removeEventListener("popstate", popStateListener);
-    popStateListener = null;
-  }
-});
-
-// 初始设置
-updateTheme();
 </script>
 
 <template>
@@ -327,9 +149,8 @@ updateTheme();
               <h1 class="text-xl font-bold">{{ $t("app.title") }}</h1>
             </div>
             <nav class="hidden sm:ml-6 sm:flex sm:space-x-8">
-              <a
-                href="#"
-                @click.prevent="navigateTo('home')"
+              <router-link
+                to="/"
                 :class="[
                   activePage === 'home' ? 'border-primary-500 text-current' : 'border-transparent hover:border-gray-300',
                   'inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors duration-200',
@@ -337,10 +158,9 @@ updateTheme();
                 ]"
               >
                 {{ $t("nav.home") }}
-              </a>
-              <a
-                href="#"
-                @click.prevent="navigateTo('upload')"
+              </router-link>
+              <router-link
+                to="/upload"
                 :class="[
                   activePage === 'upload' ? 'border-primary-500 text-current' : 'border-transparent hover:border-gray-300',
                   'inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors duration-200',
@@ -348,10 +168,9 @@ updateTheme();
                 ]"
               >
                 {{ $t("nav.upload") }}
-              </a>
-              <a
-                href="#"
-                @click.prevent="navigateTo('mount-explorer')"
+              </router-link>
+              <router-link
+                to="/mount-explorer"
                 :class="[
                   activePage === 'mount-explorer' ? 'border-primary-500 text-current' : 'border-transparent hover:border-gray-300',
                   'inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors duration-200',
@@ -359,10 +178,9 @@ updateTheme();
                 ]"
               >
                 {{ $t("nav.mountExplorer") }}
-              </a>
-              <a
-                href="#"
-                @click.prevent="navigateTo('admin')"
+              </router-link>
+              <router-link
+                to="/admin"
                 :class="[
                   activePage === 'admin' ? 'border-primary-500 text-current' : 'border-transparent hover:border-gray-300',
                   'inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium transition-colors duration-200',
@@ -370,7 +188,7 @@ updateTheme();
                 ]"
               >
                 {{ $t("nav.admin") }}
-              </a>
+              </router-link>
             </nav>
           </div>
           <div class="hidden sm:ml-6 sm:flex sm:items-center space-x-2">
@@ -457,7 +275,7 @@ updateTheme();
                 'p-2 rounded-full focus:outline-none transition-colors mr-2',
                 isDarkMode ? 'text-yellow-300 hover:text-yellow-200 hover:bg-gray-700' : 'text-gray-400 hover:text-gray-500 hover:bg-gray-100',
               ]"
-              aria-label="切换主题"
+              :aria-label="$t('theme.toggle')"
             >
               <span class="sr-only">{{ $t("theme.toggle") }}</span>
               <!-- 自动模式图标 - 半亮半暗 -->
@@ -497,7 +315,7 @@ updateTheme();
                   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100',
               ]"
               :aria-expanded="isMobileMenuOpen"
-              aria-label="主菜单"
+              :aria-label="$t('nav.menu')"
             >
               <!-- 菜单图标 -->
               <svg v-if="!isMobileMenuOpen" class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -515,9 +333,9 @@ updateTheme();
       <!-- 移动端菜单面板 -->
       <div class="sm:hidden overflow-hidden transition-all duration-300 ease-in-out" :class="[isMobileMenuOpen ? 'max-h-80' : 'max-h-0']">
         <div :class="['py-3 border-t transition-colors', isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200']">
-          <a
-            href="#"
-            @click.prevent="navigateTo('home')"
+          <router-link
+            to="/"
+            @click="isMobileMenuOpen = false"
             :class="[
               'flex items-center px-4 py-3 transition-colors duration-200',
               activePage === 'home'
@@ -530,10 +348,10 @@ updateTheme();
             ]"
           >
             <span class="ml-2">{{ $t("nav.home") }}</span>
-          </a>
-          <a
-            href="#"
-            @click.prevent="navigateTo('upload')"
+          </router-link>
+          <router-link
+            to="/upload"
+            @click="isMobileMenuOpen = false"
             :class="[
               'flex items-center px-4 py-3 transition-colors duration-200',
               activePage === 'upload'
@@ -546,10 +364,10 @@ updateTheme();
             ]"
           >
             <span class="ml-2">{{ $t("nav.upload") }}</span>
-          </a>
-          <a
-            href="#"
-            @click.prevent="navigateTo('mount-explorer')"
+          </router-link>
+          <router-link
+            to="/mount-explorer"
+            @click="isMobileMenuOpen = false"
             :class="[
               'flex items-center px-4 py-3 transition-colors duration-200',
               activePage === 'mount-explorer'
@@ -562,10 +380,10 @@ updateTheme();
             ]"
           >
             <span class="ml-2">{{ $t("nav.mountExplorer") }}</span>
-          </a>
-          <a
-            href="#"
-            @click.prevent="navigateTo('admin')"
+          </router-link>
+          <router-link
+            to="/admin"
+            @click="isMobileMenuOpen = false"
             :class="[
               'flex items-center px-4 py-3 transition-colors duration-200',
               activePage === 'admin'
@@ -578,39 +396,13 @@ updateTheme();
             ]"
           >
             <span class="ml-2">{{ $t("nav.admin") }}</span>
-          </a>
+          </router-link>
         </div>
       </div>
     </header>
 
-    <main class="flex-1 flex flex-col">
-      <!-- 根据当前活动页面显示不同内容 -->
-      <div v-if="activePage === 'home'" class="transition-opacity duration-300 flex-1 flex flex-col" :class="{ 'opacity-0': transitioning }">
-        <MarkdownEditor :darkMode="isDarkMode" />
-      </div>
-      <div v-else-if="activePage === 'upload'" class="transition-opacity duration-300 flex-1 flex flex-col" :class="{ 'opacity-0': transitioning }">
-        <FileUploadPage :darkMode="isDarkMode" />
-      </div>
-      <div v-else-if="activePage === 'admin'" class="transition-opacity duration-300 flex-1 flex flex-col" :class="{ 'opacity-0': transitioning }">
-        <AdminPage :dark-mode="isDarkMode" class="flex-1 flex flex-col" />
-      </div>
-      <div
-        v-else-if="activePage === 'paste-view' && pasteSlug"
-        class="transition-opacity duration-300 flex-1 flex flex-col"
-        :class="{ 'opacity-0': transitioning, dark: isDarkMode }"
-      >
-        <PasteView :slug="pasteSlug" :dark-mode="isDarkMode" />
-      </div>
-      <div
-        v-else-if="activePage === 'file-view' && fileSlug"
-        class="transition-opacity duration-300 flex-1 flex flex-col"
-        :class="{ 'opacity-0': transitioning, dark: isDarkMode }"
-      >
-        <FileView :slug="fileSlug" :dark-mode="isDarkMode" />
-      </div>
-      <div v-else-if="activePage === 'mount-explorer'" class="transition-opacity duration-300 flex-1 flex flex-col" :class="{ 'opacity-0': transitioning }">
-        <MountExplorer :dark-mode="isDarkMode" />
-      </div>
+    <main class="flex-1 flex flex-col" :class="activePage !== 'admin' ? 'pb-8' : ''">
+      <router-view :dark-mode="isDarkMode" class="transition-opacity duration-300 flex-1 flex flex-col" :class="{ 'opacity-0': transitioning }" />
     </main>
 
     <footer :class="['border-t transition-colors mt-auto', isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200']">
@@ -622,7 +414,10 @@ updateTheme();
     </footer>
 
     <!-- 添加环境切换器组件 (在开发环境或管理员登录状态下显示) -->
-    <EnvSwitcher v-if="showEnvSwitcher" />
+    <!-- <EnvSwitcher v-if="showEnvSwitcher" /> -->
+
+    <!-- PWA 安装提示组件 -->
+    <PWAInstallPrompt :dark-mode="isDarkMode" />
   </div>
 </template>
 
@@ -669,13 +464,5 @@ main {
 /* 禁用移动端点击时的蓝色高亮 */
 * {
   -webkit-tap-highlight-color: transparent;
-}
-
-/* 管理页面填充样式 */
-[v-if="activePage === 'admin'"] {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-  height: 100%;
 }
 </style>
