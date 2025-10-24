@@ -16,7 +16,7 @@ export default {
       defaultUseProxyHint: "When enabled, new files will use Worker proxy by default; when disabled, direct links will be used by default",
       fileOverwriteModeLabel: "File Overwrite Mode",
       fileOverwriteModeHint:
-          "When enabled, files with the same name will be directly overwritten; when disabled, random suffixes will be used to avoid conflicts (e.g., document-a1B2c3.pdf)",
+        "When enabled, files with the same name will be directly overwritten; when disabled, random suffixes will be used to avoid conflicts (e.g., document-a1B2c3.pdf)",
     },
     proxySignSettings: {
       title: "Proxy Signature Settings",
@@ -41,6 +41,13 @@ export default {
   account: {
     title: "Account Management",
     description: "Manage administrator account information, including username and password modification",
+    apiKeyTitle: "Account Information",
+    apiKeyDescription: "View your account information",
+    apiKeyInfo: {
+      title: "Account Information",
+      keyName: "Key Name",
+      basicPath: "Basic Path",
+    },
     adminInfo: {
       title: "Administrator Information Modification",
       description: "Modify administrator username and password",
@@ -81,7 +88,7 @@ export default {
       title: "WebDAV Upload Settings",
       description: "Configure WebDAV client upload processing method",
       uploadModeLabel: "WebDAV Upload Mode",
-      uploadModeHint: "Select the upload processing method for the WebDAV client. For worker deployment, it is recommended to use only the direct upload mode.",
+      uploadModeHint: "Select the upload processing method for the WebDAV client.",
       modes: {
         direct: "Direct Upload",
         multipart: "Multipart Upload",
@@ -116,7 +123,7 @@ export default {
     textTypes: "Text File Types",
     textTypesLabel: "Supported text file extensions",
     textTypesPlaceholder:
-        "txt,htm,html,xml,java,properties,sql,js,md,json,conf,ini,vue,php,py,bat,yml,go,sh,c,cpp,h,hpp,tsx,vtt,srt,ass,rs,lrc,dockerfile,makefile,gitignore,license,readme",
+      "txt,htm,html,xml,java,properties,sql,js,md,json,conf,ini,vue,php,py,bat,yml,go,sh,c,cpp,h,hpp,tsx,vtt,srt,ass,rs,lrc,dockerfile,makefile,gitignore,license,readme",
     textTypesHelp: "Comma-separated text file extensions that will be displayed using the text previewer",
 
     imageTypes: "Image File Types",
@@ -128,7 +135,7 @@ export default {
     videoTypesLabel: "Supported video file extensions",
     videoTypesPlaceholder: "mp4,htm,html,mkv,avi,mov,rmvb,webm,flv,m3u8",
     videoTypesHelp:
-        "Video file extensions separated by commas, which will be previewed using a video player (playback depends on browser support, generally only supporting h.264 (mp4) encoded formats).",
+      "Video file extensions separated by commas, which will be previewed using a video player (playback depends on browser support, generally only supporting h.264 (mp4) encoded formats).",
 
     audioTypes: "Audio File Types",
     audioTypesLabel: "Supported audio file extensions",
@@ -148,5 +155,53 @@ export default {
     resetDefaults: "Reset to Defaults",
     resetConfirm: "Are you sure you want to reset to default settings? This will overwrite all current configurations.",
     saveSuccess: "Preview settings saved successfully",
+  },
+
+  // Site settings page
+  site: {
+    title: "Site Settings",
+    description: "Configure site-related features",
+    groups: {
+      basic: "Basic Settings",
+      announcement: "Announcement Settings",
+    },
+    siteTitle: {
+      label: "Site Title",
+      hint: "Displayed in browser tabs and page titles",
+      placeholder: "Enter site title",
+    },
+    favicon: {
+      label: "Site Icon",
+      hint: "Supports http://, https:// links or data: base64 format, leave empty for default icon",
+      placeholder: "https://example.com/favicon.svg",
+    },
+    footer: {
+      label: "Footer Content",
+      hint: "Supports Markdown format, you can use links, bold text, etc. Leave empty to hide footer",
+      placeholder: "© 2025 CloudPaste. All rights reserved.",
+    },
+    announcement: {
+      enableLabel: "Enable Announcement Banner",
+      enableHint: "When enabled, the announcement banner will be displayed on the homepage",
+      contentLabel: "Announcement Content",
+      contentHint: "Supports Markdown format, you can use bold, italic, links, etc.",
+      contentPlaceholder: "Please enter announcement content, Markdown format supported...",
+    },
+    customHead: "Custom Head",
+    customHeadPlaceholder: "<!-- Enter your custom head content here -->",
+    customHeadHelp: "Any content set here will be automatically placed at the beginning of the webpage head",
+    customBody: "Custom Body",
+    customBodyPlaceholder: "<!-- Enter your custom body content here -->",
+    customBodyHelp: "Any content set here will be automatically placed at the end of the webpage body",
+    buttons: {
+      updateSettings: "Update Settings",
+      updating: "Updating...",
+      reset: "Reset",
+    },
+    messages: {
+      updateSuccess: "Site settings updated successfully",
+      updateFailed: "Failed to update site settings",
+      confirmReset: "Are you sure you want to reset all site settings?",
+    },
   },
 };

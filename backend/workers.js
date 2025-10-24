@@ -1,7 +1,7 @@
 import app from "./src/index.js";
 import { ApiStatus } from "./src/constants/index.js";
 import { checkAndInitDatabase } from "./src/utils/database.js";
-import { getWebDAVConfig } from "./src/webdav/auth/index.js";
+import { addWebDAVHeaders } from "./src/webdav/utils/headerUtils.js";
 
 // 记录数据库是否已初始化的内存标识
 let isDbInitialized = false;
@@ -43,44 +43,18 @@ export default {
           const response = await app.fetch(request, bindings, ctx);
 
           // 为响应添加标准WebDAV头部
-          const config = getWebDAVConfig();
-          const newResponse = new Response(response.body, response);
-
-          // 添加WebDAV协议头
-          const webdavHeaders = {
-            Allow: config.SUPPORTED_METHODS.join(", "),
-            Public: config.SUPPORTED_METHODS.join(", "),
-            DAV: config.PROTOCOL.RESPONSE_HEADERS.DAV,
-            "MS-Author-Via": config.PROTOCOL.RESPONSE_HEADERS["MS-Author-Via"],
-            "Microsoft-Server-WebDAV-Extensions": config.PROTOCOL.RESPONSE_HEADERS["Microsoft-Server-WebDAV-Extensions"],
-            "X-MSDAVEXT": config.PROTOCOL.RESPONSE_HEADERS["X-MSDAVEXT"],
-          };
-
-          // 添加CORS头
-          if (config.CORS.ENABLED) {
-            webdavHeaders["Access-Control-Allow-Origin"] = config.CORS.ALLOW_ORIGIN;
-            webdavHeaders["Access-Control-Allow-Methods"] = config.SUPPORTED_METHODS.join(", ");
-            webdavHeaders["Access-Control-Allow-Headers"] = config.CORS.ALLOW_HEADERS.join(", ");
-            webdavHeaders["Access-Control-Max-Age"] = "86400";
-          }
-
-          // 只添加还没有的响应头
-          for (const [key, value] of Object.entries(webdavHeaders)) {
-            if (!newResponse.headers.has(key)) {
-              newResponse.headers.set(key, value);
-            }
-          }
+          const newResponse = addWebDAVHeaders(response);
 
           return newResponse;
         } catch (error) {
           console.error("Workers WebDAV处理错误:", error);
+
           return new Response("WebDAV处理错误", {
             status: 500,
             headers: { "Content-Type": "text/plain" },
           });
         }
       }
-
 
       // 处理原始文本内容请求 /api/raw/:slug
       if (pathParts.length >= 4 && pathParts[1] === "api" && pathParts[2] === "raw") {

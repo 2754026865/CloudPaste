@@ -134,7 +134,12 @@
               <span class="text-xs font-medium px-1.5 py-0.5 rounded-full" :class="darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-700'">
                 {{ displayFileSize }}
               </span>
-              <span v-if="displayMimeType" class="text-xs px-1.5 py-0.5 rounded-full" :class="darkMode ? 'bg-blue-900/30 text-blue-300' : 'bg-blue-100 text-blue-700'">
+              <span
+                v-if="displayMimeType"
+                class="text-xs px-1.5 py-0.5 rounded-full max-w-32 truncate inline-block"
+                :class="darkMode ? 'bg-blue-900/30 text-blue-300' : 'bg-blue-100 text-blue-700'"
+                :title="displayMimeType"
+              >
                 {{ displayMimeType }}
               </span>
             </div>
@@ -777,8 +782,8 @@ const validateCustomLink = () => {
     return true;
   }
 
-  // 验证格式：只允许字母、数字、连字符、下划线
-  const slugRegex = /^[a-zA-Z0-9_-]+$/;
+  // 验证格式：只允许字母、数字、连字符、下划线、点号
+  const slugRegex = /^[a-zA-Z0-9._-]+$/;
   if (!slugRegex.test(formData.slug)) {
     slugError.value = t("file.messages.slugInvalid");
     return false;

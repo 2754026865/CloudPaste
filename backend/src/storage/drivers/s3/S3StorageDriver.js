@@ -8,7 +8,7 @@ import { CAPABILITIES } from "../../interfaces/capabilities/index.js";
 import { HTTPException } from "hono/http-exception";
 import { ApiStatus } from "../../../constants/index.js";
 import { createS3Client } from "../../../utils/s3Utils.js";
-import { normalizeS3SubPath } from "./utils/S3PathUtils.js";
+import { normalizeS3SubPath, isCompleteFilePath } from "./utils/S3PathUtils.js";
 import { updateMountLastUsed, findMountPointByPath } from "../../fs/utils/MountResolver.js";
 import { buildFullProxyUrl, buildSignedProxyUrl } from "../../../constants/proxy.js";
 import { ProxySignatureService } from "../../../services/ProxySignatureService.js";
@@ -18,7 +18,6 @@ import { S3FileOperations } from "./operations/S3FileOperations.js";
 import { S3DirectoryOperations } from "./operations/S3DirectoryOperations.js";
 import { S3BatchOperations } from "./operations/S3BatchOperations.js";
 import { S3UploadOperations } from "./operations/S3UploadOperations.js";
-import { S3BackendMultipartOperations } from "./operations/S3BackendMultipartOperations.js";
 import { S3SearchOperations } from "./operations/S3SearchOperations.js";
 
 export class S3StorageDriver extends BaseDriver {
@@ -66,7 +65,7 @@ export class S3StorageDriver extends BaseDriver {
       this.directoryOps = new S3DirectoryOperations(this.s3Client, this.config, this.encryptionSecret);
       this.batchOps = new S3BatchOperations(this.s3Client, this.config, this.encryptionSecret);
       this.uploadOps = new S3UploadOperations(this.s3Client, this.config, this.encryptionSecret);
-      this.backendMultipartOps = new S3BackendMultipartOperations(this.s3Client, this.config, this.encryptionSecret);
+      // this.backendMultipartOps = new S3BackendMultipartOperations(this.s3Client, this.config, this.encryptionSecret); // 已废弃，使用前端分片上传
       this.searchOps = new S3SearchOperations(this.s3Client, this.config, this.encryptionSecret);
 
       this.initialized = true;
@@ -91,19 +90,20 @@ export class S3StorageDriver extends BaseDriver {
     const { mount, subPath, db } = options;
 
     // 规范化S3子路径
-    const s3SubPath = normalizeS3SubPath(subPath, this.config, true);
+    const s3SubPath = normalizeS3SubPath(subPath, true);
 
     // 更新挂载点的最后使用时间
     if (db && mount.id) {
       await updateMountLastUsed(db, mount.id);
     }
 
-    // 委托给目录操作模块
+    // 委托给目录操作模块，传递所有选项参数
     return await this.directoryOps.listDirectory(s3SubPath, {
       mount,
       subPath, // 使用正确的子路径用于缓存键生成
       path,
       db,
+      ...options,
     });
   }
 
@@ -119,7 +119,7 @@ export class S3StorageDriver extends BaseDriver {
     const { mount, subPath, db, userType, userId, request } = options;
 
     // 规范化S3子路径
-    const s3SubPath = normalizeS3SubPath(subPath, this.config, false);
+    const s3SubPath = normalizeS3SubPath(subPath, false);
 
     // 更新挂载点的最后使用时间
     if (db && mount.id) {
@@ -175,7 +175,7 @@ export class S3StorageDriver extends BaseDriver {
     const { mount, subPath, db, request } = options;
 
     // 规范化S3子路径
-    const s3SubPath = normalizeS3SubPath(subPath, this.config, false);
+    const s3SubPath = normalizeS3SubPath(subPath, false);
 
     // 更新挂载点的最后使用时间
     if (db && mount.id) {
@@ -202,7 +202,7 @@ export class S3StorageDriver extends BaseDriver {
     const { mount, subPath, db, userIdOrInfo, userType, useMultipart = true } = options;
 
     // 规范化S3子路径
-    const s3SubPath = normalizeS3SubPath(subPath, this.config, false);
+    const s3SubPath = normalizeS3SubPath(subPath, false);
 
     if (useMultipart) {
       // 使用分片上传
@@ -226,6 +226,37 @@ export class S3StorageDriver extends BaseDriver {
   }
 
   /**
+   * 上传流式数据
+   * @param {string} path - 目标路径
+   * @param {ReadableStream} stream - 数据流
+   * @param {Object} options - 选项参数
+   * @returns {Promise<Object>} 上传结果
+   */
+  async uploadStream(path, stream, options = {}) {
+    this._ensureInitialized();
+
+    const { mount, subPath, db, userIdOrInfo, userType, filename, contentType, contentLength, useMultipart = false } = options;
+
+    // 规范化S3子路径
+    const s3SubPath = normalizeS3SubPath(subPath, false);
+
+    // 构建完整的S3 key
+    const s3Key = this._normalizeFilePath(s3SubPath, path, filename);
+
+    // 委托给上传操作模块
+    return await this.uploadOps.uploadStream(s3Key, stream, {
+      mount,
+      db,
+      userIdOrInfo,
+      userType,
+      filename,
+      contentType,
+      contentLength,
+      useMultipart,
+    });
+  }
+
+  /**
    * 创建目录
    * @param {string} path - 目录路径
    * @param {Object} options - 选项参数
@@ -237,7 +268,7 @@ export class S3StorageDriver extends BaseDriver {
     const { mount, subPath, db } = options;
 
     // 规范化S3子路径
-    const s3SubPath = normalizeS3SubPath(subPath, this.config, true);
+    const s3SubPath = normalizeS3SubPath(subPath, true);
 
     // 更新挂载点的最后使用时间
     if (db && mount.id) {
@@ -331,7 +362,7 @@ export class S3StorageDriver extends BaseDriver {
     const { mount, subPath, db, operation = "download" } = options;
 
     // 规范化S3子路径
-    const s3SubPath = normalizeS3SubPath(subPath, this.config, false);
+    const s3SubPath = normalizeS3SubPath(subPath, false);
 
     // 更新挂载点的最后使用时间
     if (db && mount.id) {
@@ -371,7 +402,7 @@ export class S3StorageDriver extends BaseDriver {
     const { mount, subPath, db } = options;
 
     // 规范化S3子路径
-    const s3SubPath = normalizeS3SubPath(subPath, this.config, false);
+    const s3SubPath = normalizeS3SubPath(subPath, false);
 
     // 提取文件名
     const fileName = path.split("/").filter(Boolean).pop() || "file";
@@ -382,9 +413,9 @@ export class S3StorageDriver extends BaseDriver {
     });
 
     // 处理缓存清理
-    const { clearCache } = await import("../../../utils/DirectoryCache.js");
+    const { clearDirectoryCache } = await import("../../../cache/index.js");
     if (mount && mount.cache_ttl > 0) {
-      await clearCache({ mountId: mount.id });
+      await clearDirectoryCache({ mountId: mount.id });
     }
 
     // 更新挂载点的最后使用时间
@@ -421,7 +452,7 @@ export class S3StorageDriver extends BaseDriver {
     const { subPath } = options;
 
     // 规范化S3子路径
-    const s3SubPath = normalizeS3SubPath(subPath, this.config, false);
+    const s3SubPath = normalizeS3SubPath(subPath, false);
 
     // 委托给文件操作模块检查存在性
     return await this.fileOps.exists(s3SubPath);
@@ -487,7 +518,7 @@ export class S3StorageDriver extends BaseDriver {
     const { fileName, fileSize, partSize = 5 * 1024 * 1024, partCount, mount, db, userIdOrInfo, userType } = options;
 
     // 规范化S3子路径
-    const s3SubPath = normalizeS3SubPath(subPath, this.config, false);
+    const s3SubPath = normalizeS3SubPath(subPath, false);
 
     // 委托给上传操作模块
     return await this.uploadOps.initializeFrontendMultipartUpload(s3SubPath, {
@@ -514,7 +545,7 @@ export class S3StorageDriver extends BaseDriver {
     const { uploadId, parts, fileName, fileSize, mount, db, userIdOrInfo, userType } = options;
 
     // 规范化S3子路径
-    const s3SubPath = normalizeS3SubPath(subPath, this.config, false);
+    const s3SubPath = normalizeS3SubPath(subPath, false);
 
     // 委托给上传操作模块
     return await this.uploadOps.completeFrontendMultipartUpload(s3SubPath, {
@@ -541,7 +572,7 @@ export class S3StorageDriver extends BaseDriver {
     const { uploadId, fileName, mount, db, userIdOrInfo, userType } = options;
 
     // 规范化S3子路径
-    const s3SubPath = normalizeS3SubPath(subPath, this.config, false);
+    const s3SubPath = normalizeS3SubPath(subPath, false);
 
     // 委托给上传操作模块
     return await this.uploadOps.abortFrontendMultipartUpload(s3SubPath, {
@@ -555,6 +586,78 @@ export class S3StorageDriver extends BaseDriver {
   }
 
   /**
+   * 列出进行中的分片上传
+   * @param {string} subPath - 子路径（可选，用于过滤特定文件的上传）
+   * @param {Object} options - 选项参数
+   * @returns {Promise<Object>} 进行中的上传列表
+   */
+  async listMultipartUploads(subPath = "", options = {}) {
+    this._ensureInitialized();
+
+    const { mount, db } = options;
+
+    // 规范化S3子路径
+    const s3SubPath = normalizeS3SubPath(subPath, false);
+
+    // 更新挂载点的最后使用时间
+    if (db && mount && mount.id) {
+      await updateMountLastUsed(db, mount.id);
+    }
+
+    // 委托给上传操作模块
+    return await this.uploadOps.listMultipartUploads(s3SubPath, options);
+  }
+
+  /**
+   * 列出已上传的分片
+   * @param {string} subPath - 子路径
+   * @param {string} uploadId - 上传ID
+   * @param {Object} options - 选项参数
+   * @returns {Promise<Object>} 已上传的分片列表
+   */
+  async listMultipartParts(subPath, uploadId, options = {}) {
+    this._ensureInitialized();
+
+    const { mount, db } = options;
+
+    // 规范化S3子路径
+    const s3SubPath = normalizeS3SubPath(subPath, false);
+
+    // 更新挂载点的最后使用时间
+    if (db && mount && mount.id) {
+      await updateMountLastUsed(db, mount.id);
+    }
+
+    // 委托给上传操作模块
+    return await this.uploadOps.listMultipartParts(s3SubPath, uploadId, options);
+  }
+
+  /**
+   * 为现有上传刷新预签名URL
+   * @param {string} subPath - 子路径
+   * @param {string} uploadId - 现有的上传ID
+   * @param {Array} partNumbers - 需要刷新URL的分片编号数组
+   * @param {Object} options - 选项参数
+   * @returns {Promise<Object>} 刷新的预签名URL列表
+   */
+  async refreshMultipartUrls(subPath, uploadId, partNumbers, options = {}) {
+    this._ensureInitialized();
+
+    const { mount, db } = options;
+
+    // 规范化S3子路径
+    const s3SubPath = normalizeS3SubPath(subPath, false);
+
+    // 更新挂载点的最后使用时间
+    if (db && mount && mount.id) {
+      await updateMountLastUsed(db, mount.id);
+    }
+
+    // 委托给上传操作模块
+    return await this.uploadOps.refreshMultipartUrls(s3SubPath, uploadId, partNumbers, options);
+  }
+
+  /**
    * 规范化文件路径（用于后端分片上传）
    * @param {string} subPath - 子路径
    * @param {string} path - 完整路径，用于提取文件名
@@ -564,14 +667,13 @@ export class S3StorageDriver extends BaseDriver {
    */
   _normalizeFilePath(subPath, path, customFilename) {
     // 规范化S3子路径 (不添加斜杠，因为是文件)
-    let s3SubPath = normalizeS3SubPath(subPath, this.config, false);
+    let s3SubPath = normalizeS3SubPath(subPath, false);
 
     // 获取文件名，优先使用自定义文件名，其次从路径中提取
     const fileName = customFilename || path.split("/").filter(Boolean).pop() || "unnamed_file";
 
-    // 检查s3SubPath是否已经包含完整的文件路径
-    // 如果s3SubPath以文件名结尾，说明它已经是完整的文件路径，直接使用
-    if (s3SubPath && s3SubPath.endsWith(fileName)) {
+    // 智能检查s3SubPath是否已经包含完整的文件路径
+    if (s3SubPath && isCompleteFilePath(s3SubPath, fileName)) {
       // 添加root_prefix（如果有）
       const rootPrefix = this.config.root_prefix ? (this.config.root_prefix.endsWith("/") ? this.config.root_prefix : this.config.root_prefix + "/") : "";
       return rootPrefix + s3SubPath;
@@ -597,123 +699,126 @@ export class S3StorageDriver extends BaseDriver {
     return fullPrefix + fileName;
   }
 
-  /**
-   * 初始化后端分片上传
-   * @param {string} path - 目标路径
-   * @param {Object} options - 选项参数
-   * @returns {Promise<Object>} 初始化结果
-   */
-  async initializeBackendMultipartUpload(path, options = {}) {
-    this._ensureInitialized();
+  // /**
+  //  * 初始化后端分片上传 - 已废弃，项目使用前端分片上传
+  //  * @deprecated 使用前端分片上传 initializeFrontendMultipartUpload 替代
+  //  * @param {string} path - 目标路径
+  //  * @param {Object} options - 选项参数
+  //  * @returns {Promise<Object>} 初始化结果
+  //  */
+  // async initializeBackendMultipartUpload(path, options = {}) {
+  //   this._ensureInitialized();
 
-    const { mount, subPath, db, contentType, fileSize, filename } = options;
+  //   const { mount, subPath, db, contentType, fileSize, filename } = options;
 
-    // 使用专门的文件路径规范化函数
-    const s3SubPath = this._normalizeFilePath(subPath, path, filename);
+  //   // 使用专门的文件路径规范化函数
+  //   const s3SubPath = this._normalizeFilePath(subPath, path, filename);
 
-    // 委托给后端分片操作模块
-    const result = await this.backendMultipartOps.initializeBackendMultipartUpload(s3SubPath, {
-      contentType,
-      fileSize,
-      filename,
-    });
+  //   // 委托给后端分片操作模块
+  //   const result = await this.backendMultipartOps.initializeBackendMultipartUpload(s3SubPath, {
+  //     contentType,
+  //     fileSize,
+  //     filename,
+  //   });
 
-    // 更新挂载点的最后使用时间
-    if (db && mount.id) {
-      await updateMountLastUsed(db, mount.id);
-    }
+  //   // 更新挂载点的最后使用时间
+  //   if (db && mount.id) {
+  //     await updateMountLastUsed(db, mount.id);
+  //   }
 
-    // 添加挂载点信息到结果中
-    return {
-      ...result,
-      mount_id: mount ? mount.id : null,
-      path: path,
-      storage_type: mount ? mount.storage_type : "S3",
-    };
-  }
+  //   // 添加挂载点信息到结果中
+  //   return {
+  //     ...result,
+  //     mount_id: mount ? mount.id : null,
+  //     path: path,
+  //     storage_type: mount ? mount.storage_type : "S3",
+  //   };
+  // }
 
-  /**
-   * 上传后端分片
-   * @param {string} path - 目标路径
-   * @param {Object} options - 选项参数
-   * @returns {Promise<Object>} 上传结果
-   */
-  async uploadBackendPart(path, options = {}) {
-    this._ensureInitialized();
+  // /**
+  //  * 上传后端分片 - 已废弃，项目使用前端分片上传
+  //  * @deprecated 使用前端分片上传替代
+  //  * @param {string} path - 目标路径
+  //  * @param {Object} options - 选项参数
+  //  * @returns {Promise<Object>} 上传结果
+  //  */
+  // async uploadBackendPart(path, options = {}) {
+  //   this._ensureInitialized();
 
-    const { mount, subPath, db, uploadId, partNumber, partData, s3Key } = options;
+  //   const { mount, subPath, db, uploadId, partNumber, partData, s3Key } = options;
 
-    // 如果提供了s3Key，直接使用，否则重新计算
-    const s3SubPath = s3Key || this._normalizeFilePath(subPath, path);
+  //   // 如果提供了s3Key，直接使用，否则重新计算
+  //   const s3SubPath = s3Key || this._normalizeFilePath(subPath, path);
 
-    // 委托给后端分片操作模块
-    const result = await this.backendMultipartOps.uploadBackendPart(s3SubPath, {
-      uploadId,
-      partNumber,
-      partData,
-    });
+  //   // 委托给后端分片操作模块
+  //   const result = await this.backendMultipartOps.uploadBackendPart(s3SubPath, {
+  //     uploadId,
+  //     partNumber,
+  //     partData,
+  //   });
 
-    // 更新挂载点的最后使用时间
-    if (db && mount.id) {
-      await updateMountLastUsed(db, mount.id);
-    }
+  //   // 更新挂载点的最后使用时间
+  //   if (db && mount.id) {
+  //     await updateMountLastUsed(db, mount.id);
+  //   }
 
-    return result;
-  }
+  //   return result;
+  // }
 
-  /**
-   * 完成后端分片上传
-   * @param {string} path - 目标路径
-   * @param {Object} options - 选项参数
-   * @returns {Promise<Object>} 完成结果
-   */
-  async completeBackendMultipartUpload(path, options = {}) {
-    this._ensureInitialized();
+  // /**
+  //  * 完成后端分片上传 - 已废弃，项目使用前端分片上传
+  //  * @deprecated 使用前端分片上传 completeFrontendMultipartUpload 替代
+  //  * @param {string} path - 目标路径
+  //  * @param {Object} options - 选项参数
+  //  * @returns {Promise<Object>} 完成结果
+  //  */
+  // async completeBackendMultipartUpload(path, options = {}) {
+  //   this._ensureInitialized();
 
-    const { mount, subPath, db, uploadId, parts, contentType, fileSize, userIdOrInfo, userType, s3Key } = options;
+  //   const { mount, subPath, db, uploadId, parts, contentType, fileSize, userIdOrInfo, userType, s3Key } = options;
 
-    // 如果提供了s3Key，直接使用，否则重新计算
-    const s3SubPath = s3Key || this._normalizeFilePath(subPath, path);
+  //   // 如果提供了s3Key，直接使用，否则重新计算
+  //   const s3SubPath = s3Key || this._normalizeFilePath(subPath, path);
 
-    // 委托给后端分片操作模块
-    const result = await this.backendMultipartOps.completeBackendMultipartUpload(s3SubPath, {
-      uploadId,
-      parts,
-      contentType,
-      fileSize,
-    });
+  //   // 委托给后端分片操作模块
+  //   const result = await this.backendMultipartOps.completeBackendMultipartUpload(s3SubPath, {
+  //     uploadId,
+  //     parts,
+  //     contentType,
+  //     fileSize,
+  //   });
 
-    // fs系统不再创建files表记录，只做纯粹的文件操作
-    let fileName = s3SubPath.split("/").filter(Boolean).pop();
-    if (!fileName) {
-      fileName = path.split("/").filter(Boolean).pop();
-    }
-    if (!fileName) {
-      fileName = "unnamed_file";
-    }
-    console.log(`后端分片上传完成: ${fileName}, 大小: ${fileSize || 0}字节`);
+  //   // fs系统不再创建files表记录，只做纯粹的文件操作
+  //   let fileName = s3SubPath.split("/").filter(Boolean).pop();
+  //   if (!fileName) {
+  //     fileName = path.split("/").filter(Boolean).pop();
+  //   }
+  //   if (!fileName) {
+  //     fileName = "unnamed_file";
+  //   }
+  //   console.log(`后端分片上传完成: ${fileName}, 大小: ${fileSize || 0}字节`);
 
-    // 更新挂载点的最后使用时间
-    if (db && mount.id) {
-      await updateMountLastUsed(db, mount.id);
-    }
+  //   // 更新挂载点的最后使用时间
+  //   if (db && mount.id) {
+  //     await updateMountLastUsed(db, mount.id);
+  //   }
 
-    // 清除缓存
-    if (mount) {
-      const { clearCache } = await import("../../../utils/DirectoryCache.js");
-      try {
-        await clearCache({ mountId: mount.id });
-        console.log(`后端分片上传完成后缓存已清除 - 挂载点=${mount.id}`);
-      } catch (cacheError) {
-        console.warn(`清除缓存时出错: ${cacheError.message}`);
-      }
-    }
+  //   // 清除缓存
+  //   if (mount) {
+  //     const { clearDirectoryCache } = await import("../../../cache/index.js");
+  //     try {
+  //       await clearDirectoryCache({ mountId: mount.id });
+  //       console.log(`后端分片上传完成后缓存已清除 - 挂载点=${mount.id}`);
+  //     } catch (cacheError) {
+  //       console.warn(`清除缓存时出错: ${cacheError.message}`);
+  //     }
+  //   }
 
-    return {
-      ...result,
-      path: path,
-    };
-  }
+  //   return {
+  //     ...result,
+  //     path: path,
+  //   };
+  // }
 
   /**
    * 中止后端分片上传

@@ -38,9 +38,10 @@ export async function validateAdminToken(db, token) {
  * @param {D1Database} db - D1数据库实例
  * @param {string} username - 用户名
  * @param {string} password - 密码
+ * @param {Object} env - 环境变量对象
  * @returns {Promise<Object>} 登录结果，包含token和过期时间
  */
-export async function login(db, username, password) {
+export async function login(db, username, password, env = {}) {
   // 参数验证
   if (!username || !password) {
     throw new HTTPException(ApiStatus.BAD_REQUEST, { message: "用户名和密码不能为空" });
@@ -62,13 +63,36 @@ export async function login(db, username, password) {
     throw new HTTPException(ApiStatus.UNAUTHORIZED, { message: "用户名或密码错误" });
   }
 
+  // ===== token管理：限制并发session数量 =====
+  const MAX_TOKENS_PER_USER = 5; // 每个用户最多5个token
+
+  // 获取该用户的所有token（包括过期的）
+  const existingTokens = await adminRepository.getAllTokensForAdmin(admin.id);
+
+  // 如果超过限制，删除最旧的token，保留最新的5个
+  if (existingTokens.length >= MAX_TOKENS_PER_USER) {
+    // 保留最新的4个token，为新token留出空间
+    const tokensToKeep = existingTokens.slice(0, MAX_TOKENS_PER_USER - 1);
+    const tokensToDelete = existingTokens.slice(MAX_TOKENS_PER_USER - 1);
+
+    for (const tokenToDelete of tokensToDelete) {
+      await adminRepository.deleteToken(tokenToDelete.token);
+    }
+
+    console.log(`已清理 ${tokensToDelete.length} 个旧token（包括过期token），保留最新的 ${tokensToKeep.length} 个，当前用户: ${admin.username}`);
+  }
+  // ===== token管理结束 =====
+
   // 更新最后登录时间
   await adminRepository.updateLastLogin(admin.id);
 
   // 生成并存储令牌
   const token = generateRandomString(32);
   const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 1); // 1天过期
+
+  // 从环境变量读取token过期天数，默认7天
+  const expiryDays = parseInt(env.ADMIN_TOKEN_EXPIRY_DAYS || "7", 10);
+  expiresAt.setDate(expiresAt.getDate() + expiryDays);
 
   // 使用 AdminRepository 创建令牌
   await adminRepository.createToken(admin.id, token, expiresAt);

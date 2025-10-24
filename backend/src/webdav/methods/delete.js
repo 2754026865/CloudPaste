@@ -5,8 +5,9 @@
 import { MountManager } from "../../storage/managers/MountManager.js";
 import { FileSystem } from "../../storage/fs/FileSystem.js";
 import { handleWebDAVError, createWebDAVErrorResponse } from "../utils/errorUtils.js";
-import { clearCache } from "../../utils/DirectoryCache.js";
-import { getLockManager } from "../utils/LockManager.js";
+import { getStandardWebDAVHeaders } from "../utils/headerUtils.js";
+import { clearDirectoryCache } from "../../cache/index.js";
+import { lockManager } from "../utils/LockManager.js";
 import { checkLockPermission } from "../utils/lockUtils.js";
 
 /**
@@ -19,9 +20,6 @@ import { checkLockPermission } from "../utils/lockUtils.js";
  */
 export async function handleDelete(c, path, userId, userType, db) {
   try {
-    // 获取锁定管理器实例
-    const lockManager = getLockManager();
-
     // 检查锁定状态
     const ifHeader = c.req.header("If");
     const lockConflict = checkLockPermission(lockManager, path, ifHeader, "DELETE");
@@ -29,7 +27,9 @@ export async function handleDelete(c, path, userId, userType, db) {
       console.log(`WebDAV DELETE - 锁定冲突: ${path}`);
       return new Response(lockConflict.message, {
         status: lockConflict.status,
-        headers: { "Content-Type": "text/plain" },
+        headers: getStandardWebDAVHeaders({
+          customHeaders: { "Content-Type": "text/plain" },
+        }),
       });
     }
 
@@ -40,7 +40,9 @@ export async function handleDelete(c, path, userId, userType, db) {
     if (pathParts.length === 1) {
       return new Response("不能删除挂载点根目录", {
         status: 405, // Method Not Allowed
-        headers: { "Content-Type": "text/plain" },
+        headers: getStandardWebDAVHeaders({
+          customHeaders: { "Content-Type": "text/plain" },
+        }),
       });
     }
 
@@ -75,7 +77,7 @@ export async function handleDelete(c, path, userId, userType, db) {
     try {
       const { mount } = await mountManager.getDriverByPath(path, userId, userType);
       if (mount) {
-        await clearCache({ mountId: mount.id });
+        await clearDirectoryCache({ mountId: mount.id });
         console.log(`WebDAV DELETE - 已清理挂载点 ${mount.id} 的缓存`);
       }
     } catch (cacheError) {
@@ -88,10 +90,12 @@ export async function handleDelete(c, path, userId, userType, db) {
     // 返回成功响应（符合WebDAV DELETE标准）
     return new Response(null, {
       status: 204, // No Content
-      headers: {
-        "Content-Type": "text/plain",
-        "Content-Length": "0",
-      },
+      headers: getStandardWebDAVHeaders({
+        customHeaders: {
+          "Content-Type": "text/plain",
+          "Content-Length": "0",
+        },
+      }),
     });
   } catch (error) {
     console.error(`WebDAV DELETE - 处理错误: ${error.message}`, error);
